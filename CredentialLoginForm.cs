@@ -19,6 +19,9 @@ public sealed class CredentialLoginForm : Form
         ShowInTaskbar = false;
         ClientSize = new Size(420, 250);
         Font = new Font("Segoe UI", 10F);
+        BackColor = Theme.Bg;
+        ForeColor = Theme.TextMain;
+        HandleCreated += (_, _) => DwmWindow.ApplyModernDarkFrame(this);
         BuildLayout(fastLaunchDefault);
     }
 
@@ -29,7 +32,8 @@ public sealed class CredentialLoginForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 6,
-            Padding = new Padding(18)
+            Padding = new Padding(18),
+            BackColor = Theme.Bg
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -44,7 +48,7 @@ public sealed class CredentialLoginForm : Form
             AutoSize = false,
             Height = 38,
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(89, 99, 114)
+            ForeColor = Theme.TextMuted
         };
 
         ConfigureInput(_usernameBox, "Username");
@@ -53,21 +57,28 @@ public sealed class CredentialLoginForm : Form
 
         _showPasswordCheck.Text = "Show password";
         _showPasswordCheck.AutoSize = true;
+        _showPasswordCheck.ForeColor = Theme.TextMuted;
+        _showPasswordCheck.BackColor = Theme.Bg;
         _showPasswordCheck.CheckedChanged += (_, _) => _passwordBox.UseSystemPasswordChar = !_showPasswordCheck.Checked;
 
         _fastLaunchCheck.Text = "Use fast launch flags";
         _fastLaunchCheck.AutoSize = true;
         _fastLaunchCheck.Checked = fastLaunchDefault;
+        _fastLaunchCheck.ForeColor = Theme.TextMuted;
+        _fastLaunchCheck.BackColor = Theme.Bg;
 
         var buttons = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.RightToLeft,
             Dock = DockStyle.Fill,
-            AutoSize = true
+            AutoSize = true,
+            BackColor = Theme.Bg
         };
 
-        var loginButton = new Button { Text = "Login", Size = new Size(90, 32), DialogResult = DialogResult.OK };
-        var cancelButton = new Button { Text = "Cancel", Size = new Size(90, 32), DialogResult = DialogResult.Cancel };
+        var loginButton = new RoundedButton { Text = "Login", Size = new Size(90, 32), DialogResult = DialogResult.OK, BackColor = Theme.Accent, ForeColor = Theme.TextMain, FlatStyle = FlatStyle.Flat };
+        var cancelButton = new RoundedButton { Text = "Cancel", Size = new Size(90, 32), DialogResult = DialogResult.Cancel, BackColor = Theme.SurfaceAlt, ForeColor = Theme.TextMain, FlatStyle = FlatStyle.Flat };
+        loginButton.FlatAppearance.BorderSize = 0;
+        cancelButton.FlatAppearance.BorderSize = 0;
         loginButton.Click += (_, e) =>
         {
             if (string.IsNullOrWhiteSpace(_usernameBox.Text) || string.IsNullOrEmpty(_passwordBox.Text))
@@ -101,5 +112,7 @@ public sealed class CredentialLoginForm : Form
         textBox.Margin = new Padding(0, 0, 0, 10);
         textBox.PlaceholderText = placeholder;
         textBox.BorderStyle = BorderStyle.FixedSingle;
+        textBox.BackColor = Theme.Surface;
+        textBox.ForeColor = Theme.TextMain;
     }
 }
