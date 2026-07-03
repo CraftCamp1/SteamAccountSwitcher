@@ -179,7 +179,7 @@ public sealed class MainForm : Form
         ConfigureButton(_switchButton, "Switch && Start", true);
         ConfigureButton(_loginButton, "Login...", false);
         ConfigureButton(_refreshButton, "Refresh", false);
-        ConfigureCheck(_fastLaunchCheck, "Fast launch", true);
+        ConfigureCheck(_fastLaunchCheck, "Fast switch", true);
         ConfigureCheck(_startSteamCheck, "Start Steam", true);
 
         _switchButton.Click += async (_, _) => await SwitchSelectedAccountAsync();

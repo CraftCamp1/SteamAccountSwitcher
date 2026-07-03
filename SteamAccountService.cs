@@ -346,16 +346,10 @@ public sealed class SteamAccountService
             throw new FileNotFoundException("Steam executable was not found.", Paths.SteamExe);
         }
 
-        var arguments = string.Empty;
-        if (options.FastLaunch)
-        {
-            arguments = "-silent -nofriendsui";
-        }
-
         Process.Start(new ProcessStartInfo
         {
             FileName = Paths.SteamExe,
-            Arguments = arguments,
+            Arguments = string.Empty,
             WorkingDirectory = Paths.SteamDirectory,
             UseShellExecute = true
         });
