@@ -1,14 +1,12 @@
-using System.ComponentModel;
-
 namespace SteamAccountSwitcher;
 
 public sealed class MainForm : Form
 {
     private readonly SteamAccountService _service;
     private readonly List<SteamAccount> _allAccounts = [];
-    private readonly BindingList<SteamAccount> _visibleAccounts = [];
-    private readonly TextBox _searchBox = new();
-    private readonly ListBox _accountList = new FlickerFreeListBox();
+    private readonly List<SteamAccount> _visibleAccounts = [];
+    private readonly SearchInput _searchBox = new();
+    private readonly AccountTable _accountTable = new();
     private readonly Button _switchButton = new RoundedButton();
     private readonly Button _loginButton = new RoundedButton();
     private readonly Button _refreshButton = new RoundedButton();
@@ -75,21 +73,19 @@ public sealed class MainForm : Form
             BackColor = Theme.Bg,
             Padding = new Padding(16),
             ColumnCount = 1,
-            RowCount = 6
+            RowCount = 5
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
 
         root.Controls.Add(BuildTitle(), 0, 0);
         root.Controls.Add(BuildSearch(), 0, 1);
-        root.Controls.Add(BuildColumns(), 0, 2);
-        root.Controls.Add(BuildList(), 0, 3);
-        root.Controls.Add(BuildActions(), 0, 4);
-        root.Controls.Add(BuildStatus(), 0, 5);
+        root.Controls.Add(BuildList(), 0, 2);
+        root.Controls.Add(BuildActions(), 0, 3);
+        root.Controls.Add(BuildStatus(), 0, 4);
         Controls.Add(root);
     }
 
@@ -116,61 +112,27 @@ public sealed class MainForm : Form
     private Control BuildSearch()
     {
         _searchBox.Dock = DockStyle.Fill;
-        _searchBox.Margin = new Padding(0, 2, 0, 6);
+        _searchBox.Margin = new Padding(0, 4, 0, 6);
         _searchBox.PlaceholderText = "Search accounts...";
-        _searchBox.BorderStyle = BorderStyle.FixedSingle;
-        _searchBox.Font = new Font("Segoe UI", 9F);
-        _searchBox.BackColor = Theme.Surface;
-        _searchBox.ForeColor = Theme.TextMain;
         _searchBox.TextChanged += (_, _) => ApplySearch();
         _searchBox.KeyDown += SearchBoxKeyDown;
         return _searchBox;
     }
 
-    private static Control BuildColumns()
-    {
-        var row = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.SurfaceAlt, ColumnCount = 4, Padding = new Padding(10, 4, 10, 0) };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 12));
-        foreach (var text in new[] { "Account", "Persona", "SteamID", "State" })
-        {
-            row.Controls.Add(new Label { Text = text, Dock = DockStyle.Fill, ForeColor = Theme.TextMuted, Font = new Font("Segoe UI Semibold", 8.5F) });
-        }
-        return row;
-    }
-
     private Control BuildList()
     {
-        _accountList.Dock = DockStyle.Fill;
-        _accountList.Margin = Padding.Empty;
-        _accountList.DataSource = _visibleAccounts;
-        _accountList.DisplayMember = nameof(SteamAccount.DisplayName);
-        _accountList.DrawMode = DrawMode.OwnerDrawFixed;
-        _accountList.ItemHeight = 22;
-        _accountList.IntegralHeight = false;
-        _accountList.BorderStyle = BorderStyle.FixedSingle;
-        _accountList.BackColor = Theme.Surface;
-        _accountList.ForeColor = Theme.TextMain;
-        _accountList.DrawItem += DrawAccountRow;
-        _accountList.DoubleClick += async (_, _) => await SwitchSelectedAccountAsync();
-        _accountList.KeyDown += async (_, e) =>
+        _accountTable.Dock = DockStyle.Fill;
+        _accountTable.Margin = new Padding(0, 4, 0, 0);
+        _accountTable.SelectionConfirmed += async (_, _) => await SwitchSelectedAccountAsync();
+        _accountTable.KeyDown += (_, e) =>
         {
-            if (e.KeyCode is Keys.Enter or Keys.Space)
-            {
-                e.SuppressKeyPress = true;
-                await SwitchSelectedAccountAsync();
-                return;
-            }
-
             if (e.KeyCode == Keys.F2)
             {
                 FocusSearch();
                 e.SuppressKeyPress = true;
             }
         };
-        return _accountList;
+        return _accountTable;
     }
 
     private Control BuildActions()
@@ -241,51 +203,11 @@ public sealed class MainForm : Form
         checkBox.Margin = new Padding(8, 5, 8, 0);
     }
 
-    private void DrawAccountRow(object? sender, DrawItemEventArgs e)
-    {
-        if (e.Index < 0 || e.Index >= _visibleAccounts.Count) return;
-
-        var account = _visibleAccounts[e.Index];
-        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-        var background = selected ? Theme.Selected : Theme.Surface;
-
-        using var bg = new SolidBrush(background);
-        e.Graphics.FillRectangle(bg, e.Bounds);
-
-        var widths = new[] { .32f, .26f, .30f, .12f };
-        var left = e.Bounds.Left + 8;
-        var total = e.Bounds.Width - 16;
-        var y = e.Bounds.Top + 3;
-        using var main = new SolidBrush(Theme.TextMain);
-        using var muted = new SolidBrush(Theme.TextMuted);
-        using var accent = new SolidBrush(Theme.AccentHover);
-        using var font = new Font("Segoe UI", 9F);
-
-        DrawCell(e.Graphics, account.AccountName, font, main, left, y, total * widths[0]);
-        left += (int)(total * widths[0]);
-        DrawCell(e.Graphics, account.PersonaName, font, muted, left, y, total * widths[1]);
-        left += (int)(total * widths[1]);
-        DrawCell(e.Graphics, account.SteamId, font, muted, left, y, total * widths[2]);
-        left += (int)(total * widths[2]);
-        DrawCell(e.Graphics, account.MostRecent ? "Current" : string.Empty, font, accent, left, y, total * widths[3]);
-
-        using var pen = new Pen(Theme.Line);
-        e.Graphics.DrawLine(pen, e.Bounds.Left + 6, e.Bounds.Bottom - 1, e.Bounds.Right - 6, e.Bounds.Bottom - 1);
-        e.DrawFocusRectangle();
-    }
-
-    private static void DrawCell(Graphics graphics, string text, Font font, Brush brush, int x, int y, float width)
-    {
-        var rect = new RectangleF(x, y, width - 8, 18);
-        using var format = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
-        graphics.DrawString(text, font, brush, rect, format);
-    }
-
     private void RefreshAccounts()
     {
         try
         {
-            var selectedSteamId = (_accountList.SelectedItem as SteamAccount)?.SteamId;
+            var selectedSteamId = _accountTable.SelectedItem?.SteamId;
             _allAccounts.Clear();
             _allAccounts.AddRange(_service.LoadAccounts());
             ApplySearch(selectedSteamId);
@@ -301,7 +223,7 @@ public sealed class MainForm : Form
 
     private async Task SwitchSelectedAccountAsync()
     {
-        if (_accountList.SelectedItem is not SteamAccount account)
+        if (_accountTable.SelectedItem is not SteamAccount account)
         {
             MessageBox.Show(this, "Choose an account first.", "No account selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
@@ -345,27 +267,15 @@ public sealed class MainForm : Form
 
     private void ApplySearch(string? preferredSteamId = null)
     {
-        var query = _searchBox.Text.Trim();
-        var selectedSteamId = preferredSteamId ?? (_accountList.SelectedItem as SteamAccount)?.SteamId;
+        var query = (_searchBox.Text ?? string.Empty).Trim();
+        var selectedSteamId = preferredSteamId ?? _accountTable.SelectedItem?.SteamId;
         var matches = string.IsNullOrWhiteSpace(query)
             ? _allAccounts
             : _allAccounts.Where(account => Contains(account.AccountName, query) || Contains(account.PersonaName, query) || Contains(account.SteamId, query)).ToList();
 
-        _visibleAccounts.RaiseListChangedEvents = false;
         _visibleAccounts.Clear();
-        foreach (var account in matches) _visibleAccounts.Add(account);
-        _visibleAccounts.RaiseListChangedEvents = true;
-        _visibleAccounts.ResetBindings();
-
-        if (!string.IsNullOrWhiteSpace(selectedSteamId))
-        {
-            var index = _visibleAccounts.ToList().FindIndex(account => account.SteamId == selectedSteamId);
-            if (index >= 0) _accountList.SelectedIndex = index;
-        }
-        else if (_visibleAccounts.Count > 0)
-        {
-            _accountList.SelectedIndex = 0;
-        }
+        _visibleAccounts.AddRange(matches);
+        _accountTable.SetItems(_visibleAccounts, selectedSteamId);
 
         var current = _allAccounts.FirstOrDefault(account => account.MostRecent);
         _countLabel.Text = string.IsNullOrWhiteSpace(query) ? $"{_allAccounts.Count} accounts" : $"{_visibleAccounts.Count}/{_allAccounts.Count}";
@@ -385,15 +295,15 @@ public sealed class MainForm : Form
 
         if (e.KeyCode is Keys.Enter or Keys.Down && _visibleAccounts.Count > 0)
         {
-            _accountList.Focus();
-            if (_accountList.SelectedIndex < 0) _accountList.SelectedIndex = 0;
+            _accountTable.Focus();
+            if (_accountTable.SelectedIndex < 0) _accountTable.SelectedIndex = 0;
             e.SuppressKeyPress = true;
         }
     }
 
     private void SetBusy(bool busy, bool allowRefresh = false)
     {
-        _accountList.Enabled = !busy;
+        _accountTable.Enabled = !busy;
         _searchBox.Enabled = !busy;
         _switchButton.Enabled = !busy && _visibleAccounts.Count > 0;
         _loginButton.Enabled = !busy;
@@ -412,15 +322,6 @@ public sealed class MainForm : Form
     private static bool Contains(string value, string query)
     {
         return value.Contains(query, StringComparison.OrdinalIgnoreCase);
-    }
-}
-
-file sealed class FlickerFreeListBox : ListBox
-{
-    public FlickerFreeListBox()
-    {
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-        UpdateStyles();
     }
 }
 
