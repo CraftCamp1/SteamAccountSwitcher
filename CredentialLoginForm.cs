@@ -61,7 +61,7 @@ public sealed class CredentialLoginForm : Form
         _showPasswordCheck.BackColor = Theme.Bg;
         _showPasswordCheck.CheckedChanged += (_, _) => _passwordBox.UseSystemPasswordChar = !_showPasswordCheck.Checked;
 
-        _fastLaunchCheck.Text = "Use fast launch flags";
+        _fastLaunchCheck.Text = "Fast-close Steam before login";
         _fastLaunchCheck.AutoSize = true;
         _fastLaunchCheck.Checked = fastLaunchDefault;
         _fastLaunchCheck.ForeColor = Theme.TextMuted;

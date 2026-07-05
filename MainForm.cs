@@ -250,18 +250,37 @@ public sealed class MainForm : Form
         using var form = new CredentialLoginForm(_fastLaunchCheck.Checked);
         if (form.ShowDialog(this) != DialogResult.OK || form.Request is null) return;
 
+        var request = form.Request;
         SetBusy(true);
         try
         {
             var progress = new Progress<string>(message => _statusLabel.Text = message);
-            await _service.LoginWithCredentialsAsync(form.Request, progress, CancellationToken.None);
+            await _service.LoginWithCredentialsAsync(request, progress, CancellationToken.None);
             RefreshAccounts();
+            _ = WatchCredentialLoginSaveAsync(request.Username);
         }
         catch (Exception ex)
         {
             _statusLabel.Text = ex.Message;
             MessageBox.Show(this, ex.Message, "Login failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             SetBusy(false);
+        }
+    }
+
+    private async Task WatchCredentialLoginSaveAsync(string username)
+    {
+        try
+        {
+            var progress = new Progress<string>(message => _statusLabel.Text = message);
+            var savedAccount = await _service.WaitForCredentialLoginToPersistAsync(username, progress, CancellationToken.None);
+            _statusLabel.Text = savedAccount is null
+                ? $"Steam started for {username}. Refresh after login finishes."
+                : $"Steam saved {savedAccount.AccountName}.";
+            RefreshAccounts();
+        }
+        catch (Exception ex)
+        {
+            _statusLabel.Text = ex.Message;
         }
     }
 

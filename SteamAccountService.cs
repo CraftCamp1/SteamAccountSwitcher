@@ -72,11 +72,7 @@ public sealed class SteamAccountService
 
         progress?.Report("Starting Steam with credentials...");
         StartSteamWithCredentials(request);
-        progress?.Report("Waiting for Steam to save the login...");
-        var savedAccount = await WaitForCredentialLoginToPersistAsync(request.Username, progress, cancellationToken);
-        progress?.Report(savedAccount is null
-            ? $"Steam started for {request.Username}. Finish the login in Steam, then refresh."
-            : $"Steam saved {savedAccount.AccountName}.");
+        progress?.Report($"Started Steam login for {request.Username}.");
     }
 
     private async Task StopSteamAsync(bool fastMode, CancellationToken cancellationToken)
@@ -204,7 +200,7 @@ public sealed class SteamAccountService
         await File.WriteAllTextAsync(Paths.ConfigFile, updatedContent, cancellationToken);
     }
 
-    private async Task<SteamAccount?> WaitForCredentialLoginToPersistAsync(string accountName, IProgress<string>? progress, CancellationToken cancellationToken)
+    public async Task<SteamAccount?> WaitForCredentialLoginToPersistAsync(string accountName, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
         var backedUp = false;
@@ -363,10 +359,6 @@ public sealed class SteamAccountService
         }
 
         var arguments = $"-login {QuoteArgument(request.Username)} {QuoteArgument(request.Password)}";
-        if (request.FastLaunch)
-        {
-            arguments += " -silent -nofriendsui";
-        }
 
         Process.Start(new ProcessStartInfo
         {
