@@ -64,8 +64,8 @@ public sealed class SteamAccountService
         progress?.Report(request.FastLaunch ? "Fast-closing Steam..." : "Closing Steam...");
         await StopSteamAsync(request.FastLaunch, cancellationToken);
 
-        progress?.Report("Updating Steam registry state...");
-        SetRegistryAutologin(request.Username);
+        progress?.Report("Preparing Steam login state...");
+        PrepareCredentialLoginRegistry();
 
         progress?.Report("Disabling Steam account picker...");
         await DisableSteamAccountPickerAsync(cancellationToken);
@@ -218,7 +218,7 @@ public sealed class SteamAccountService
 
             if (DateTimeOffset.UtcNow - lastStatus > TimeSpan.FromSeconds(5))
             {
-                progress?.Report($"Waiting for Steam to save {accountName}...");
+                progress?.Report($"Waiting for Steam Guard / Steam to finish {accountName}...");
                 lastStatus = DateTimeOffset.UtcNow;
             }
 
@@ -241,6 +241,11 @@ public sealed class SteamAccountService
         {
             var originalContent = File.ReadAllText(Paths.LoginUsersFile);
             var updatedContent = LoginUsersVdf.SelectAccountByName(originalContent, accountName, out account);
+            if (!IsAuthorizedActiveAccount(account))
+            {
+                return false;
+            }
+
             if (!string.Equals(originalContent, updatedContent, StringComparison.Ordinal))
             {
                 if (!backedUp)
@@ -314,6 +319,35 @@ public sealed class SteamAccountService
         activeProcess.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
 
         key.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
+    }
+
+    private static void PrepareCredentialLoginRegistry()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(SteamRegistryPath);
+        key.DeleteValue("AutoLoginUser", throwOnMissingValue: false);
+        key.SetValue("RememberPassword", 1, RegistryValueKind.DWord);
+        key.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
+
+        using var activeProcess = Registry.CurrentUser.CreateSubKey($@"{SteamRegistryPath}\ActiveProcess");
+        activeProcess.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
+    }
+
+    private static bool IsAuthorizedActiveAccount(SteamAccount account)
+    {
+        if (!TryGetAccountId(account.SteamId, out var expectedAccountId))
+        {
+            return false;
+        }
+
+        return RegistryDWordEquals($@"{SteamRegistryPath}\ActiveProcess", "ActiveUser", expectedAccountId)
+               || RegistryDWordEquals(SteamRegistryPath, "ActiveUser", expectedAccountId);
+    }
+
+    private static bool RegistryDWordEquals(string path, string name, uint expectedValue)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(path);
+        var value = key?.GetValue(name);
+        return value is int intValue && unchecked((uint)intValue) == expectedValue;
     }
 
     private static bool TryGetAccountId(string steamId, out uint accountId)
