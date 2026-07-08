@@ -67,13 +67,15 @@ public sealed class CredentialLoginForm : Form
         _fastLaunchCheck.ForeColor = Theme.TextMuted;
         _fastLaunchCheck.BackColor = Theme.Bg;
 
-        var buttons = new FlowLayoutPanel
+        var buttons = new TableLayoutPanel
         {
-            FlowDirection = FlowDirection.RightToLeft,
             Dock = DockStyle.Fill,
             AutoSize = true,
+            ColumnCount = 2,
             BackColor = Theme.Bg
         };
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
         var loginButton = new RoundedButton { Text = "Login", Size = new Size(90, 32), DialogResult = DialogResult.OK, BackColor = Theme.Accent, ForeColor = Theme.TextMain, FlatStyle = FlatStyle.Flat };
         var cancelButton = new RoundedButton { Text = "Cancel", Size = new Size(90, 32), DialogResult = DialogResult.Cancel, BackColor = Theme.SurfaceAlt, ForeColor = Theme.TextMain, FlatStyle = FlatStyle.Flat };
@@ -91,8 +93,10 @@ public sealed class CredentialLoginForm : Form
             Request = new CredentialLoginRequest(_usernameBox.Text.Trim(), _passwordBox.Text, _fastLaunchCheck.Checked);
         };
 
-        buttons.Controls.Add(loginButton);
-        buttons.Controls.Add(cancelButton);
+        cancelButton.Anchor = AnchorStyles.Left;
+        loginButton.Anchor = AnchorStyles.Right;
+        buttons.Controls.Add(cancelButton, 0, 0);
+        buttons.Controls.Add(loginButton, 1, 0);
 
         AcceptButton = loginButton;
         CancelButton = cancelButton;

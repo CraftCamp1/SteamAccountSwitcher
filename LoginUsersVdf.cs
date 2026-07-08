@@ -45,12 +45,18 @@ public static partial class LoginUsersVdf
     public static string SelectAccount(string content, string targetSteamId)
     {
         var accounts = Parse(content);
-        if (accounts.All(account => account.SteamId != targetSteamId))
+        var targetAccount = accounts.FirstOrDefault(account => account.SteamId == targetSteamId);
+        if (targetAccount is null)
         {
             throw new InvalidOperationException("The selected account was not found in loginusers.vdf.");
         }
 
-        return SerializeSelectedAccounts(accounts, targetSteamId);
+        if (!targetAccount.RememberPassword)
+        {
+            throw new InvalidOperationException("Steam has not saved this account yet. Use Login first, complete Steam Guard if needed, and make sure Steam remembers the account.");
+        }
+
+        return SerializeSelectedAccounts(accounts, targetSteamId, forceRememberTarget: false);
     }
 
     public static string SelectAccountByName(string content, string targetAccountName, out SteamAccount selectedAccount)
@@ -60,10 +66,10 @@ public static partial class LoginUsersVdf
             string.Equals(account.AccountName, targetAccountName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("The logged-in account was not found in loginusers.vdf yet.");
 
-        return SerializeSelectedAccounts(accounts, selectedAccount.SteamId);
+        return SerializeSelectedAccounts(accounts, selectedAccount.SteamId, forceRememberTarget: true);
     }
 
-    private static string SerializeSelectedAccounts(IReadOnlyList<SteamAccount> accounts, string targetSteamId)
+    private static string SerializeSelectedAccounts(IReadOnlyList<SteamAccount> accounts, string targetSteamId, bool forceRememberTarget)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
         using var writer = new StringWriter(CultureInfo.InvariantCulture);
@@ -77,10 +83,10 @@ public static partial class LoginUsersVdf
             writer.WriteLine("\t{");
             writer.WriteLine($"\t\t\"AccountName\"\t\t\"{Escape(account.AccountName)}\"");
             writer.WriteLine($"\t\t\"PersonaName\"\t\t\"{Escape(account.PersonaName)}\"");
-            writer.WriteLine("\t\t\"RememberPassword\"\t\t\"1\"");
+            writer.WriteLine($"\t\t\"RememberPassword\"\t\t\"{(account.RememberPassword || (isTarget && forceRememberTarget) ? "1" : "0")}\"");
             writer.WriteLine("\t\t\"WantsOfflineMode\"\t\t\"0\"");
             writer.WriteLine("\t\t\"SkipOfflineModeWarning\"\t\t\"0\"");
-            writer.WriteLine($"\t\t\"AllowAutoLogin\"\t\t\"{(isTarget ? "1" : "0")}\"");
+            writer.WriteLine($"\t\t\"AllowAutoLogin\"\t\t\"{(isTarget && (account.RememberPassword || forceRememberTarget) ? "1" : "0")}\"");
             writer.WriteLine($"\t\t\"MostRecent\"\t\t\"{(isTarget ? "1" : "0")}\"");
             writer.WriteLine($"\t\t\"Timestamp\"\t\t\"{(isTarget ? now : ToUnixTimestamp(account.LastUsed))}\"");
             writer.WriteLine("\t}");
