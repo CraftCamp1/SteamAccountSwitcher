@@ -211,9 +211,9 @@ public sealed class AccountTable : Control
 
             DrawCells(
                 graphics,
-                [account.AccountName, account.PersonaName, account.SteamId, account.MostRecent ? "Current" : string.Empty],
+                [account.AccountName, account.PersonaName, account.SteamId, AccountStateText(account)],
                 font,
-                [main, muted, muted, accent],
+                [main, muted, muted, account.RememberPassword ? accent : muted],
                 new Rectangle(rowRect.Left + 10, y + 6, rowRect.Width - 18, RowHeight - 6));
 
             graphics.DrawLine(rowLine, rowRect.Left + 10, y + RowHeight - 1, rowRect.Right - 8, y + RowHeight - 1);
@@ -243,6 +243,16 @@ public sealed class AccountTable : Control
     private static void DrawCells(Graphics graphics, string[] values, Font font, Brush brush, Rectangle bounds)
     {
         DrawCells(graphics, values, font, [brush, brush, brush, brush], bounds);
+    }
+
+    private static string AccountStateText(SteamAccount account)
+    {
+        if (!account.RememberPassword)
+        {
+            return "Login needed";
+        }
+
+        return account.MostRecent ? "Current" : string.Empty;
     }
 
     private static void DrawCells(Graphics graphics, string[] values, Font font, Brush[] brushes, Rectangle bounds)

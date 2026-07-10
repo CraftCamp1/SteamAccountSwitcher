@@ -392,7 +392,7 @@ public sealed class SteamAccountService
             throw new FileNotFoundException("Steam executable was not found.", Paths.SteamExe);
         }
 
-        var arguments = $"-login {QuoteArgument(request.Username)} {QuoteArgument(request.Password)} -remember_password";
+        var arguments = $"-rememberpassword -login {QuoteArgument(request.Username)} {QuoteArgument(request.Password)}";
 
         Process.Start(new ProcessStartInfo
         {
