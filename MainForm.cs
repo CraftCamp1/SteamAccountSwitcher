@@ -274,7 +274,7 @@ public sealed class MainForm : Form
             var progress = new Progress<string>(message => _statusLabel.Text = message);
             var savedAccount = await _service.WaitForCredentialLoginToPersistAsync(username, progress, CancellationToken.None);
             _statusLabel.Text = savedAccount is null
-                ? $"Steam started for {username}. Finish Steam Guard, then refresh."
+                ? $"Steam did not confirm sign-in for {username}. Complete any Steam prompt, then refresh."
                 : $"Steam saved {savedAccount.AccountName}.";
             RefreshAccounts();
         }

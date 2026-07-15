@@ -124,24 +124,45 @@ public sealed class SteamAccountService
 
     private static async Task KillSteamProcessesAsync(CancellationToken cancellationToken)
     {
-        foreach (var process in Process.GetProcessesByName("steam")
-                     .Concat(Process.GetProcessesByName("steamwebhelper")))
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        do
         {
-            try
+            var processes = Process.GetProcessesByName("steam")
+                .Concat(Process.GetProcessesByName("steamwebhelper"))
+                .ToArray();
+
+            if (processes.Length == 0)
             {
-                if (!process.HasExited)
+                return;
+            }
+
+            foreach (var process in processes)
+            {
+                try
                 {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync(cancellationToken);
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // Processes can exit or spawn replacements while Steam is shutting down.
+                }
+                finally
+                {
+                    process.Dispose();
                 }
             }
-            catch
-            {
-                // Best-effort cleanup; file write will fail if Steam still owns the file.
-            }
-        }
 
-        await WaitForSteamExitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+            await Task.Delay(100, cancellationToken);
+        }
+        while (DateTimeOffset.UtcNow < deadline);
+
+        if (IsSteamRunning())
+        {
+            throw new InvalidOperationException("Steam did not fully close. Try again after Steam exits.");
+        }
     }
 
     private void TrySteamShutdownCommand()
@@ -218,7 +239,7 @@ public sealed class SteamAccountService
 
             if (DateTimeOffset.UtcNow - lastStatus > TimeSpan.FromSeconds(5))
             {
-                progress?.Report($"Waiting for Steam Guard / Steam to finish {accountName}...");
+                progress?.Report($"Waiting for Steam to complete sign-in for {accountName}...");
                 lastStatus = DateTimeOffset.UtcNow;
             }
 
@@ -392,21 +413,16 @@ public sealed class SteamAccountService
             throw new FileNotFoundException("Steam executable was not found.", Paths.SteamExe);
         }
 
-        var arguments = $"-rememberpassword -login {QuoteArgument(request.Username)} {QuoteArgument(request.Password)}";
-
-        Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = Paths.SteamExe,
-            Arguments = arguments,
             WorkingDirectory = Paths.SteamDirectory,
-            UseShellExecute = true
-        });
-    }
-
-    private static string QuoteArgument(string value)
-    {
-        return value.Contains(' ') || value.Contains('"')
-            ? $"\"{value.Replace("\"", "\\\"")}\""
-            : value;
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add("-rememberpassword");
+        startInfo.ArgumentList.Add("-login");
+        startInfo.ArgumentList.Add(request.Username);
+        startInfo.ArgumentList.Add(request.Password);
+        Process.Start(startInfo);
     }
 }
