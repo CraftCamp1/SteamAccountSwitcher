@@ -2,26 +2,36 @@ namespace SteamAccountSwitcher;
 
 public sealed class CredentialLoginForm : Form
 {
-    private readonly TextBox _usernameBox = new();
-    private readonly TextBox _passwordBox = new();
+    private readonly HistoryTextBox _usernameBox = new();
+    private readonly HistoryTextBox _passwordBox = new();
     private readonly CheckBox _showPasswordCheck = new();
     private readonly CheckBox _fastLaunchCheck = new();
+    private readonly Label _messageLabel = new();
+    private readonly RoundedButton _loginButton = new();
+    private readonly RoundedButton _cancelButton = new();
+    private readonly Func<CredentialLoginRequest, IProgress<string>, CancellationToken, Task<CredentialLoginResult>> _loginAsync;
+    private readonly CancellationTokenSource _closeCancellation = new();
 
-    public CredentialLoginRequest? Request { get; private set; }
+    public CredentialLoginRequest? SuccessfulRequest { get; private set; }
+    public CredentialLoginResult? Result { get; private set; }
 
-    public CredentialLoginForm(bool fastLaunchDefault)
+    public CredentialLoginForm(
+        bool fastLaunchDefault,
+        Func<CredentialLoginRequest, IProgress<string>, CancellationToken, Task<CredentialLoginResult>> loginAsync)
     {
+        _loginAsync = loginAsync;
         Text = "Login with Credentials";
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(420, 250);
+        ClientSize = new Size(420, 282);
         Font = new Font("Segoe UI", 10F);
         BackColor = Theme.Bg;
         ForeColor = Theme.TextMain;
         HandleCreated += (_, _) => DwmWindow.ApplyModernDarkFrame(this);
+        FormClosed += (_, _) => _closeCancellation.Cancel();
         BuildLayout(fastLaunchDefault);
     }
 
@@ -31,10 +41,11 @@ public sealed class CredentialLoginForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 6,
+            RowCount = 7,
             Padding = new Padding(18),
             BackColor = Theme.Bg
         };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -67,6 +78,12 @@ public sealed class CredentialLoginForm : Form
         _fastLaunchCheck.ForeColor = Theme.TextMuted;
         _fastLaunchCheck.BackColor = Theme.Bg;
 
+        _messageLabel.AutoSize = false;
+        _messageLabel.Dock = DockStyle.Fill;
+        _messageLabel.Height = 30;
+        _messageLabel.ForeColor = Theme.TextMuted;
+        _messageLabel.TextAlign = ContentAlignment.MiddleLeft;
+
         var buttons = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -77,37 +94,122 @@ public sealed class CredentialLoginForm : Form
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        var loginButton = new RoundedButton { Text = "Login", Size = new Size(90, 32), DialogResult = DialogResult.OK, BackColor = Theme.Accent, ForeColor = Theme.TextMain, FlatStyle = FlatStyle.Flat };
-        var cancelButton = new RoundedButton { Text = "Cancel", Size = new Size(90, 32), DialogResult = DialogResult.Cancel, BackColor = Theme.SurfaceAlt, ForeColor = Theme.TextMain, FlatStyle = FlatStyle.Flat };
-        loginButton.FlatAppearance.BorderSize = 0;
-        cancelButton.FlatAppearance.BorderSize = 0;
-        loginButton.Click += (_, e) =>
-        {
-            if (string.IsNullOrWhiteSpace(_usernameBox.Text) || string.IsNullOrEmpty(_passwordBox.Text))
-            {
-                MessageBox.Show(this, "Enter both username and password.", "Missing credentials", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                DialogResult = DialogResult.None;
-                return;
-            }
+        _loginButton.Text = "Login";
+        _loginButton.Size = new Size(90, 32);
+        _loginButton.BackColor = Theme.Accent;
+        _loginButton.ForeColor = Theme.TextMain;
+        _loginButton.FlatStyle = FlatStyle.Flat;
+        _cancelButton.Text = "Cancel";
+        _cancelButton.Size = new Size(90, 32);
+        _cancelButton.DialogResult = DialogResult.Cancel;
+        _cancelButton.BackColor = Theme.SurfaceAlt;
+        _cancelButton.ForeColor = Theme.TextMain;
+        _cancelButton.FlatStyle = FlatStyle.Flat;
+        _loginButton.FlatAppearance.BorderSize = 0;
+        _cancelButton.FlatAppearance.BorderSize = 0;
+        _loginButton.Click += async (_, _) => await SubmitAsync();
+        _cancelButton.Click += (_, _) => Close();
 
-            Request = new CredentialLoginRequest(_usernameBox.Text.Trim(), _passwordBox.Text, _fastLaunchCheck.Checked);
-        };
+        _cancelButton.Anchor = AnchorStyles.Left;
+        _loginButton.Anchor = AnchorStyles.Right;
+        buttons.Controls.Add(_cancelButton, 0, 0);
+        buttons.Controls.Add(_loginButton, 1, 0);
 
-        cancelButton.Anchor = AnchorStyles.Left;
-        loginButton.Anchor = AnchorStyles.Right;
-        buttons.Controls.Add(cancelButton, 0, 0);
-        buttons.Controls.Add(loginButton, 1, 0);
-
-        AcceptButton = loginButton;
-        CancelButton = cancelButton;
+        AcceptButton = _loginButton;
+        CancelButton = _cancelButton;
 
         root.Controls.Add(note, 0, 0);
         root.Controls.Add(_usernameBox, 0, 1);
         root.Controls.Add(_passwordBox, 0, 2);
         root.Controls.Add(_showPasswordCheck, 0, 3);
         root.Controls.Add(_fastLaunchCheck, 0, 4);
-        root.Controls.Add(buttons, 0, 5);
+        root.Controls.Add(_messageLabel, 0, 5);
+        root.Controls.Add(buttons, 0, 6);
         Controls.Add(root);
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_usernameBox.Text) || string.IsNullOrEmpty(_passwordBox.Text))
+        {
+            ShowError("Enter both username and password.");
+            return;
+        }
+
+        var request = new CredentialLoginRequest(_usernameBox.Text.Trim(), _passwordBox.Text, _fastLaunchCheck.Checked);
+        SetBusy(true);
+        var progress = new Progress<string>(message =>
+        {
+            _messageLabel.ForeColor = Theme.TextMuted;
+            _messageLabel.Text = message;
+        });
+
+        try
+        {
+            var result = await _loginAsync(request, progress, _closeCancellation.Token);
+            if (result.Status == CredentialLoginStatus.InvalidCredentials)
+            {
+                ShowError("Please check your password and account name and try again.");
+                _passwordBox.Focus();
+                _passwordBox.SelectAll();
+                return;
+            }
+
+            SuccessfulRequest = request;
+            Result = result;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+        catch (OperationCanceledException) when (_closeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                SetBusy(false);
+            }
+        }
+    }
+
+    public bool HandleDialogKey(Keys keyData)
+    {
+        if (keyData == Keys.Escape)
+        {
+            DialogResult = DialogResult.Cancel;
+            Close();
+            return true;
+        }
+
+        if (keyData == Keys.Enter && _loginButton.Enabled)
+        {
+            _ = SubmitAsync();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ShowError(string message)
+    {
+        _messageLabel.ForeColor = Color.FromArgb(255, 96, 96);
+        _messageLabel.Text = message;
+        SetBusy(false);
+    }
+
+    private void SetBusy(bool busy)
+    {
+        _usernameBox.Enabled = !busy;
+        _passwordBox.Enabled = !busy;
+        _showPasswordCheck.Enabled = !busy;
+        _fastLaunchCheck.Enabled = !busy;
+        _loginButton.Enabled = !busy;
+        _cancelButton.Enabled = true;
+        UseWaitCursor = busy;
     }
 
     private static void ConfigureInput(TextBox textBox, string placeholder)

@@ -15,6 +15,9 @@ public sealed class MainForm : Form
     private readonly Label _countLabel = new();
     private readonly Label _statusLabel = new();
     private readonly Label _currentLabel = new();
+    private Control? _mainContent;
+    private CredentialLoginForm? _loginView;
+    private bool _loginMode;
     public MainForm(SteamAccountService service)
     {
         _service = service;
@@ -36,6 +39,11 @@ public sealed class MainForm : Form
         HandleCreated += (_, _) => DwmWindow.ApplyModernDarkFrame(this);
         KeyDown += (_, e) =>
         {
+            if (_loginMode)
+            {
+                return;
+            }
+
             if (e.Control && e.KeyCode == Keys.F)
             {
                 FocusSearch();
@@ -65,6 +73,31 @@ public sealed class MainForm : Form
         };
     }
 
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (_loginMode && _loginView?.HandleDialogKey(keyData) == true)
+        {
+            return true;
+        }
+
+        if (!_loginMode && keyData == Keys.Enter)
+        {
+            if (_switchButton.Enabled && _visibleAccounts.Count > 0)
+            {
+                if (_accountTable.SelectedItem is null)
+                {
+                    _accountTable.SelectedIndex = 0;
+                }
+
+                _ = SwitchSelectedAccountAsync(forceStartSteam: true);
+            }
+
+            return true;
+        }
+
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
     private void BuildLayout()
     {
         var root = new TableLayoutPanel
@@ -86,6 +119,7 @@ public sealed class MainForm : Form
         root.Controls.Add(BuildList(), 0, 2);
         root.Controls.Add(BuildActions(), 0, 3);
         root.Controls.Add(BuildStatus(), 0, 4);
+        _mainContent = root;
         Controls.Add(root);
     }
 
@@ -221,7 +255,7 @@ public sealed class MainForm : Form
         }
     }
 
-    private async Task SwitchSelectedAccountAsync()
+    private async Task SwitchSelectedAccountAsync(bool forceStartSteam = false)
     {
         if (_accountTable.SelectedItem is not SteamAccount account)
         {
@@ -232,7 +266,7 @@ public sealed class MainForm : Form
         SetBusy(true);
         try
         {
-            var options = new SwitchOptions(_startSteamCheck.Checked, _fastLaunchCheck.Checked);
+            var options = new SwitchOptions(forceStartSteam || _startSteamCheck.Checked, _fastLaunchCheck.Checked);
             var progress = new Progress<string>(message => _statusLabel.Text = message);
             await _service.SwitchToAsync(account, options, progress, CancellationToken.None);
             RefreshAccounts();
@@ -247,41 +281,181 @@ public sealed class MainForm : Form
 
     private async Task LoginWithCredentialsAsync()
     {
-        using var form = new CredentialLoginForm(_fastLaunchCheck.Checked);
-        if (form.ShowDialog(this) != DialogResult.OK || form.Request is null) return;
+        var leaveSteamRunning = _startSteamCheck.Checked;
+        CredentialLoginSession? session = null;
+        using var form = new CredentialLoginForm(
+            _fastLaunchCheck.Checked,
+            async (request, progress, cancellationToken) =>
+            {
+                SetBusy(true);
+                session = await _service.LoginWithCredentialsAsync(request, progress, cancellationToken);
+                return await _service.WaitForCredentialLoginAttemptAsync(
+                    session,
+                    TimeSpan.FromSeconds(25),
+                    progress,
+                    cancellationToken);
+            });
 
-        var request = form.Request;
-        SetBusy(true);
+        var mainContent = _mainContent ?? throw new InvalidOperationException("The main view is not initialized.");
+        var previousBounds = Bounds;
+        var previousMinimumSize = MinimumSize;
+        var previousMaximumSize = MaximumSize;
+        var previousTitle = Text;
+        var previousCenter = new Point(previousBounds.Left + (previousBounds.Width / 2), previousBounds.Top + (previousBounds.Height / 2));
+        var closed = new TaskCompletionSource<DialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        form.TopLevel = false;
+        form.FormBorderStyle = FormBorderStyle.None;
+        var loginClientSize = form.ClientSize;
+        form.Dock = DockStyle.None;
+        form.Size = loginClientSize;
+        var closingTransitionStarted = false;
+        form.FormClosing += (_, _) =>
+        {
+            DwmWindow.SuspendRedraw(this);
+            closingTransitionStarted = true;
+            SuspendLayout();
+            Text = previousTitle;
+            Bounds = previousBounds;
+            MinimumSize = previousMinimumSize;
+            MaximumSize = previousMaximumSize;
+            mainContent.Visible = true;
+            mainContent.BringToFront();
+        };
+        form.FormClosed += (_, _) =>
+        {
+            Controls.Remove(form);
+            _loginView = null;
+            _loginMode = false;
+            ResumeLayout(performLayout: true);
+            if (closingTransitionStarted)
+            {
+                DwmWindow.ResumeRedraw(this);
+            }
+
+            closed.TrySetResult(form.DialogResult);
+        };
+
+        // Build and paint the login control tree while it is covered by the main view.
+        Controls.Add(form);
+        mainContent.BringToFront();
+        form.Show();
+        form.PerformLayout();
+        form.Update();
+
+        DwmWindow.UpdateAtomically(this, () =>
+        {
+            _loginMode = true;
+            _loginView = form;
+            mainContent.Visible = false;
+            Text = "Login with Credentials";
+            MinimumSize = Size.Empty;
+            MaximumSize = Size.Empty;
+            ClientSize = loginClientSize;
+            Location = new Point(previousCenter.X - (Width / 2), previousCenter.Y - (Height / 2));
+            form.Dock = DockStyle.Fill;
+            form.BringToFront();
+        });
+
+        DialogResult dialogResult;
         try
         {
-            var progress = new Progress<string>(message => _statusLabel.Text = message);
-            await _service.LoginWithCredentialsAsync(request, progress, CancellationToken.None);
-            RefreshAccounts();
-            _ = WatchCredentialLoginSaveAsync(request.Username);
+            dialogResult = await closed.Task;
         }
-        catch (Exception ex)
+        finally
         {
-            _statusLabel.Text = ex.Message;
-            MessageBox.Show(this, ex.Message, "Login failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            SetBusy(false);
+            Activate();
         }
+
+        SetBusy(false);
+        if (dialogResult != DialogResult.OK || form.SuccessfulRequest is null || form.Result is null)
+        {
+            return;
+        }
+
+        if (form.Result.Status == CredentialLoginStatus.SignedIn)
+        {
+            await CompleteCredentialLoginAsync(form.Result.Account!, leaveSteamRunning);
+            return;
+        }
+
+        if (form.Result.Status == CredentialLoginStatus.SteamGuardRequired)
+        {
+            var handoffStarted = false;
+            SetBusy(true);
+            try
+            {
+                var progress = new Progress<string>(message => _statusLabel.Text = message);
+                await _service.OpenInteractiveLoginAsync(
+                    form.SuccessfulRequest.Username,
+                    form.SuccessfulRequest.FastLaunch,
+                    progress,
+                    CancellationToken.None);
+                handoffStarted = true;
+            }
+            catch (Exception ex)
+            {
+                _statusLabel.Text = ex.Message;
+                MessageBox.Show(this, ex.Message, "Steam Guard handoff failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+
+            if (handoffStarted)
+            {
+                _ = WatchCredentialLoginSaveAsync(form.SuccessfulRequest.Username, leaveSteamRunning);
+            }
+
+            return;
+        }
+
+        _statusLabel.Text = $"Steam is waiting for {form.SuccessfulRequest.Username} to finish sign-in.";
+        _ = WatchCredentialLoginSaveAsync(form.SuccessfulRequest.Username, leaveSteamRunning);
     }
 
-    private async Task WatchCredentialLoginSaveAsync(string username)
+    private async Task WatchCredentialLoginSaveAsync(string username, bool leaveSteamRunning)
     {
         try
         {
             var progress = new Progress<string>(message => _statusLabel.Text = message);
             var savedAccount = await _service.WaitForCredentialLoginToPersistAsync(username, progress, CancellationToken.None);
-            _statusLabel.Text = savedAccount is null
-                ? $"Steam did not confirm sign-in for {username}. Complete any Steam prompt, then refresh."
-                : $"Steam saved {savedAccount.AccountName}.";
-            RefreshAccounts();
+            if (savedAccount is null)
+            {
+                RefreshAccounts();
+                _statusLabel.Text = $"Steam did not confirm sign-in for {username}. Complete any Steam prompt, then refresh.";
+                return;
+            }
+
+            await CompleteCredentialLoginAsync(savedAccount, leaveSteamRunning);
         }
         catch (Exception ex)
         {
             _statusLabel.Text = ex.Message;
         }
+    }
+
+    private async Task CompleteCredentialLoginAsync(SteamAccount account, bool leaveSteamRunning)
+    {
+        if (!leaveSteamRunning)
+        {
+            SetBusy(true);
+            try
+            {
+                var progress = new Progress<string>(message => _statusLabel.Text = message);
+                await _service.CloseSteamAfterLoginAsync(progress, CancellationToken.None);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
+        RefreshAccounts();
+        _statusLabel.Text = leaveSteamRunning
+            ? $"Steam saved {account.AccountName}."
+            : $"Steam saved {account.AccountName} and closed.";
     }
 
     private void ApplySearch(string? preferredSteamId = null)
@@ -312,7 +486,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        if (e.KeyCode is Keys.Enter or Keys.Down && _visibleAccounts.Count > 0)
+        if (e.KeyCode == Keys.Down && _visibleAccounts.Count > 0)
         {
             _accountTable.Focus();
             if (_accountTable.SelectedIndex < 0) _accountTable.SelectedIndex = 0;

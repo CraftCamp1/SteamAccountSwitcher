@@ -4,6 +4,12 @@ namespace SteamAccountSwitcher;
 
 internal static class DwmWindow
 {
+    private const int WmSetRedraw = 0x000B;
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwErase = 0x0004;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
+    private const uint RdwFrame = 0x0400;
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaWindowCornerPreference = 33;
     private const int DwmwaBorderColor = 34;
@@ -37,8 +43,45 @@ internal static class DwmWindow
         _ = DwmSetWindowAttribute(form.Handle, DwmwaTextColor, ref textColor, sizeof(int));
     }
 
+    public static void UpdateAtomically(Control control, Action update)
+    {
+        SuspendRedraw(control);
+        control.SuspendLayout();
+        try
+        {
+            update();
+        }
+        finally
+        {
+            control.ResumeLayout(performLayout: true);
+            ResumeRedraw(control);
+        }
+    }
+
+    public static void SuspendRedraw(Control control)
+    {
+        _ = SendMessage(control.Handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    public static void ResumeRedraw(Control control)
+    {
+        _ = SendMessage(control.Handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
+        _ = RedrawWindow(
+            control.Handle,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate | RdwErase | RdwAllChildren | RdwUpdateNow | RdwFrame);
+    }
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRectangle, IntPtr updateRegion, uint flags);
 }
 
 internal static class Theme

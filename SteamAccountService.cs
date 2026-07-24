@@ -16,7 +16,9 @@ public sealed class SteamAccountService
             throw new FileNotFoundException("Steam loginusers.vdf was not found.", Paths.LoginUsersFile);
         }
 
-        return LoginUsersVdf.Parse(File.ReadAllText(Paths.LoginUsersFile));
+        return LoginUsersVdf.Parse(File.ReadAllText(Paths.LoginUsersFile))
+            .Where(account => account.RememberPassword)
+            .ToList();
     }
 
     public async Task SwitchToAsync(SteamAccount account, SwitchOptions options, IProgress<string>? progress, CancellationToken cancellationToken)
@@ -49,7 +51,7 @@ public sealed class SteamAccountService
         progress?.Report($"Started Steam as {account.AccountName}.");
     }
 
-    public async Task LoginWithCredentialsAsync(CredentialLoginRequest request, IProgress<string>? progress, CancellationToken cancellationToken)
+    public async Task<CredentialLoginSession> LoginWithCredentialsAsync(CredentialLoginRequest request, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
         {
@@ -70,9 +72,72 @@ public sealed class SteamAccountService
         progress?.Report("Disabling Steam account picker...");
         await DisableSteamAccountPickerAsync(cancellationToken);
 
+        var loginLogOffset = GetLogLength("steamui_login.txt");
+        var connectionLogOffset = GetLogLength("connection_log.txt");
         progress?.Report("Starting Steam with credentials...");
         StartSteamWithCredentials(request);
         progress?.Report($"Started Steam login for {request.Username}.");
+        return new CredentialLoginSession(request.Username, loginLogOffset, connectionLogOffset);
+    }
+
+    public async Task<CredentialLoginResult> WaitForCredentialLoginAttemptAsync(
+        CredentialLoginSession session,
+        TimeSpan timeout,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        var backedUp = false;
+        var loginLogOffset = session.LoginLogOffset;
+        var connectionLogOffset = session.ConnectionLogOffset;
+        progress?.Report($"Signing in to {session.AccountName}...");
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (TryMarkLoggedInAccountRemembered(session.AccountName, ref backedUp, out var account))
+            {
+                SetRegistryAutologin(account);
+                return new CredentialLoginResult(CredentialLoginStatus.SignedIn, account);
+            }
+
+            if (ReadNewLog("steamui_login.txt", ref loginLogOffset).Contains("Invalid Password", StringComparison.OrdinalIgnoreCase))
+            {
+                return new CredentialLoginResult(CredentialLoginStatus.InvalidCredentials);
+            }
+
+            var connectionLog = ReadNewLog("connection_log.txt", ref connectionLogOffset);
+            if (connectionLog.Contains("Waiting for confirmation", StringComparison.OrdinalIgnoreCase)
+                || connectionLog.Contains("need two-factor code", StringComparison.OrdinalIgnoreCase))
+            {
+                return new CredentialLoginResult(CredentialLoginStatus.SteamGuardRequired);
+            }
+
+            await Task.Delay(500, cancellationToken);
+        }
+
+        return new CredentialLoginResult(CredentialLoginStatus.Pending);
+    }
+
+    public async Task OpenInteractiveLoginAsync(
+        string accountName,
+        bool fastMode,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        progress?.Report("Steam Guard detected. Restarting Steam's sign-in window...");
+        await StopSteamAsync(fastMode, cancellationToken);
+        PrepareInteractiveLoginRegistry(accountName);
+        await DisableSteamAccountPickerAsync(cancellationToken);
+        StartSteamInteractive();
+        progress?.Report("Complete Steam Guard in Steam's sign-in window.");
+    }
+
+    public async Task CloseSteamAfterLoginAsync(IProgress<string>? progress, CancellationToken cancellationToken)
+    {
+        progress?.Report("Saving the account and closing Steam...");
+        await StopSteamAsync(fastMode: false, cancellationToken);
     }
 
     private async Task StopSteamAsync(bool fastMode, CancellationToken cancellationToken)
@@ -314,6 +379,51 @@ public sealed class SteamAccountService
         }
     }
 
+    private long GetLogLength(string fileName)
+    {
+        var path = Path.Combine(Paths.SteamDirectory, "logs", fileName);
+        try
+        {
+            return File.Exists(path) ? new FileInfo(path).Length : 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+    }
+
+    private string ReadNewLog(string fileName, ref long offset)
+    {
+        var path = Path.Combine(Paths.SteamDirectory, "logs", fileName);
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return string.Empty;
+            }
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length < offset)
+            {
+                offset = 0;
+            }
+
+            stream.Position = offset;
+            using var reader = new StreamReader(stream);
+            var appended = reader.ReadToEnd();
+            offset = stream.Position;
+            return appended;
+        }
+        catch (IOException)
+        {
+            return string.Empty;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return string.Empty;
+        }
+    }
+
     private static void SetRegistryAutologin(SteamAccount account)
     {
         SetRegistryAutologin(account.AccountName);
@@ -346,6 +456,17 @@ public sealed class SteamAccountService
     {
         using var key = Registry.CurrentUser.CreateSubKey(SteamRegistryPath);
         key.DeleteValue("AutoLoginUser", throwOnMissingValue: false);
+        key.SetValue("RememberPassword", 1, RegistryValueKind.DWord);
+        key.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
+
+        using var activeProcess = Registry.CurrentUser.CreateSubKey($@"{SteamRegistryPath}\ActiveProcess");
+        activeProcess.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
+    }
+
+    private static void PrepareInteractiveLoginRegistry(string accountName)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(SteamRegistryPath);
+        key.SetValue("AutoLoginUser", accountName, RegistryValueKind.String);
         key.SetValue("RememberPassword", 1, RegistryValueKind.DWord);
         key.SetValue("ActiveUser", 0, RegistryValueKind.DWord);
 
@@ -424,5 +545,20 @@ public sealed class SteamAccountService
         startInfo.ArgumentList.Add(request.Username);
         startInfo.ArgumentList.Add(request.Password);
         Process.Start(startInfo);
+    }
+
+    private void StartSteamInteractive()
+    {
+        if (!File.Exists(Paths.SteamExe))
+        {
+            throw new FileNotFoundException("Steam executable was not found.", Paths.SteamExe);
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = Paths.SteamExe,
+            WorkingDirectory = Paths.SteamDirectory,
+            UseShellExecute = true
+        });
     }
 }

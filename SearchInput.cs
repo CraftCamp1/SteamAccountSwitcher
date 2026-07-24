@@ -2,7 +2,7 @@ namespace SteamAccountSwitcher;
 
 public sealed class SearchInput : UserControl
 {
-    private readonly TextBox _textBox = new();
+    private readonly HistoryTextBox _textBox = new();
 
     public SearchInput()
     {

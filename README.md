@@ -4,7 +4,7 @@ Lightweight Windows desktop app for switching between Steam accounts saved on th
 
 ## Features
 
-- Reads local Steam accounts from `config\loginusers.vdf`.
+- Reads switchable accounts that Steam has remembered from `config\loginusers.vdf`.
 - Switches the selected account to `MostRecent` and `AllowAutoLogin`.
 - Disables Steam's account picker flag when switching.
 - Updates Steam registry autologin state.

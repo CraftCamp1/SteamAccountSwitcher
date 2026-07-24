@@ -213,7 +213,7 @@ public sealed class AccountTable : Control
                 graphics,
                 [account.AccountName, account.PersonaName, account.SteamId, AccountStateText(account)],
                 font,
-                [main, muted, muted, account.RememberPassword ? accent : muted],
+                [main, muted, muted, accent],
                 new Rectangle(rowRect.Left + 10, y + 6, rowRect.Width - 18, RowHeight - 6));
 
             graphics.DrawLine(rowLine, rowRect.Left + 10, y + RowHeight - 1, rowRect.Right - 8, y + RowHeight - 1);
@@ -247,11 +247,6 @@ public sealed class AccountTable : Control
 
     private static string AccountStateText(SteamAccount account)
     {
-        if (!account.RememberPassword)
-        {
-            return "Login needed";
-        }
-
         return account.MostRecent ? "Current" : string.Empty;
     }
 
