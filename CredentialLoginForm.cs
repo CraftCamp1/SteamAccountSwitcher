@@ -72,7 +72,7 @@ public sealed class CredentialLoginForm : Form
         _showPasswordCheck.BackColor = Theme.Bg;
         _showPasswordCheck.CheckedChanged += (_, _) => _passwordBox.UseSystemPasswordChar = !_showPasswordCheck.Checked;
 
-        _fastLaunchCheck.Text = "Fast-close Steam before login";
+        _fastLaunchCheck.Text = "Fast, discrete Steam startup";
         _fastLaunchCheck.AutoSize = true;
         _fastLaunchCheck.Checked = fastLaunchDefault;
         _fastLaunchCheck.ForeColor = Theme.TextMuted;
@@ -192,6 +192,13 @@ public sealed class CredentialLoginForm : Form
         }
 
         return false;
+    }
+
+    public void FocusUsernameInput()
+    {
+        ActiveControl = _usernameBox;
+        _usernameBox.Focus();
+        _usernameBox.SelectAll();
     }
 
     private void ShowError(string message)

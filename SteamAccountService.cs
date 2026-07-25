@@ -140,6 +140,12 @@ public sealed class SteamAccountService
         await StopSteamAsync(fastMode: false, cancellationToken);
     }
 
+    public void RevealSteam(IProgress<string>? progress)
+    {
+        progress?.Report("Opening Steam...");
+        StartSteamInteractive();
+    }
+
     private async Task StopSteamAsync(bool fastMode, CancellationToken cancellationToken)
     {
         if (!IsSteamRunning())
@@ -540,6 +546,11 @@ public sealed class SteamAccountService
             WorkingDirectory = Paths.SteamDirectory,
             UseShellExecute = false
         };
+        if (request.FastLaunch)
+        {
+            startInfo.ArgumentList.Add("-silent");
+        }
+
         startInfo.ArgumentList.Add("-rememberpassword");
         startInfo.ArgumentList.Add("-login");
         startInfo.ArgumentList.Add(request.Username);

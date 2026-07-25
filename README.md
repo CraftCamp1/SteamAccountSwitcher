@@ -9,7 +9,7 @@ Lightweight Windows desktop app for switching between Steam accounts saved on th
 - Disables Steam's account picker flag when switching.
 - Updates Steam registry autologin state.
 - Fast-closes Steam, writes the local state, then restarts Steam.
-- Optional credential login popup for adding an account.
+- Optional credential login view with a discrete Steam startup mode for adding an account.
 - Does not save passwords in the app.
 - Creates timestamped backups in `Steam\config\SteamAccountSwitcherBackups`.
 

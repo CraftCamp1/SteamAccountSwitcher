@@ -356,6 +356,7 @@ public sealed class MainForm : Form
             form.Dock = DockStyle.Fill;
             form.BringToFront();
         });
+        form.FocusUsernameInput();
 
         DialogResult dialogResult;
         try
@@ -375,7 +376,10 @@ public sealed class MainForm : Form
 
         if (form.Result.Status == CredentialLoginStatus.SignedIn)
         {
-            await CompleteCredentialLoginAsync(form.Result.Account!, leaveSteamRunning);
+            await CompleteCredentialLoginAsync(
+                form.Result.Account!,
+                leaveSteamRunning,
+                form.SuccessfulRequest.FastLaunch);
             return;
         }
 
@@ -405,17 +409,32 @@ public sealed class MainForm : Form
 
             if (handoffStarted)
             {
-                _ = WatchCredentialLoginSaveAsync(form.SuccessfulRequest.Username, leaveSteamRunning);
+                _ = WatchCredentialLoginSaveAsync(
+                    form.SuccessfulRequest.Username,
+                    leaveSteamRunning,
+                    revealSteamAfterLogin: false);
             }
 
             return;
         }
 
+        if (form.SuccessfulRequest.FastLaunch)
+        {
+            var progress = new Progress<string>(message => _statusLabel.Text = message);
+            _service.RevealSteam(progress);
+        }
+
         _statusLabel.Text = $"Steam is waiting for {form.SuccessfulRequest.Username} to finish sign-in.";
-        _ = WatchCredentialLoginSaveAsync(form.SuccessfulRequest.Username, leaveSteamRunning);
+        _ = WatchCredentialLoginSaveAsync(
+            form.SuccessfulRequest.Username,
+            leaveSteamRunning,
+            revealSteamAfterLogin: false);
     }
 
-    private async Task WatchCredentialLoginSaveAsync(string username, bool leaveSteamRunning)
+    private async Task WatchCredentialLoginSaveAsync(
+        string username,
+        bool leaveSteamRunning,
+        bool revealSteamAfterLogin)
     {
         try
         {
@@ -428,7 +447,7 @@ public sealed class MainForm : Form
                 return;
             }
 
-            await CompleteCredentialLoginAsync(savedAccount, leaveSteamRunning);
+            await CompleteCredentialLoginAsync(savedAccount, leaveSteamRunning, revealSteamAfterLogin);
         }
         catch (Exception ex)
         {
@@ -436,7 +455,10 @@ public sealed class MainForm : Form
         }
     }
 
-    private async Task CompleteCredentialLoginAsync(SteamAccount account, bool leaveSteamRunning)
+    private async Task CompleteCredentialLoginAsync(
+        SteamAccount account,
+        bool leaveSteamRunning,
+        bool revealSteamAfterLogin)
     {
         if (!leaveSteamRunning)
         {
@@ -450,6 +472,11 @@ public sealed class MainForm : Form
             {
                 SetBusy(false);
             }
+        }
+        else if (revealSteamAfterLogin)
+        {
+            var progress = new Progress<string>(message => _statusLabel.Text = message);
+            _service.RevealSteam(progress);
         }
 
         RefreshAccounts();
