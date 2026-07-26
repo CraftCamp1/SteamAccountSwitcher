@@ -11,6 +11,7 @@ public sealed class CredentialLoginForm : Form
     private readonly RoundedButton _cancelButton = new();
     private readonly Func<CredentialLoginRequest, IProgress<string>, CancellationToken, Task<CredentialLoginResult>> _loginAsync;
     private readonly CancellationTokenSource _closeCancellation = new();
+    private HistoryTextBox? _lastFocusedInput;
 
     public CredentialLoginRequest? SuccessfulRequest { get; private set; }
     public CredentialLoginResult? Result { get; private set; }
@@ -64,6 +65,9 @@ public sealed class CredentialLoginForm : Form
 
         ConfigureInput(_usernameBox, "Username");
         ConfigureInput(_passwordBox, "Password");
+        _usernameBox.Enter += (_, _) => _lastFocusedInput = _usernameBox;
+        _passwordBox.Enter += (_, _) => _lastFocusedInput = _passwordBox;
+        _lastFocusedInput = _usernameBox;
         _passwordBox.UseSystemPasswordChar = true;
 
         _showPasswordCheck.Text = "Show password";
@@ -178,6 +182,18 @@ public sealed class CredentialLoginForm : Form
 
     public bool HandleDialogKey(Keys keyData)
     {
+        if (keyData == (Keys.Control | Keys.Z))
+        {
+            _lastFocusedInput?.UndoHistory();
+            return true;
+        }
+
+        if (keyData is (Keys.Control | Keys.Y) or (Keys.Control | Keys.Shift | Keys.Z))
+        {
+            _lastFocusedInput?.RedoHistory();
+            return true;
+        }
+
         if (keyData == Keys.Escape)
         {
             DialogResult = DialogResult.Cancel;

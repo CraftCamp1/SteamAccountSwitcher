@@ -35,52 +35,70 @@ public sealed class MainForm : Form
         Font = new Font("Segoe UI", 9F);
         BackColor = Theme.Bg;
         ForeColor = Theme.TextMain;
-        KeyPreview = true;
         HandleCreated += (_, _) => DwmWindow.ApplyModernDarkFrame(this);
-        KeyDown += (_, e) =>
-        {
-            if (_loginMode)
-            {
-                return;
-            }
-
-            if (e.Control && e.KeyCode == Keys.F)
-            {
-                FocusSearch();
-                e.SuppressKeyPress = true;
-                return;
-            }
-
-            if (e.Control && e.KeyCode == Keys.L)
-            {
-                _ = LoginWithCredentialsAsync();
-                e.SuppressKeyPress = true;
-                return;
-            }
-
-            if (e.KeyCode == Keys.F5)
-            {
-                RefreshAccounts();
-                e.SuppressKeyPress = true;
-                return;
-            }
-
-            if (e.KeyCode == Keys.Escape && !_searchBox.Focused)
-            {
-                FocusSearch();
-                e.SuppressKeyPress = true;
-            }
-        };
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (_loginMode && _loginView?.HandleDialogKey(keyData) == true)
+        if (_loginMode)
         {
+            return _loginView?.HandleDialogKey(keyData) == true
+                   || base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        if (keyData == (Keys.Control | Keys.F))
+        {
+            FocusSearch();
             return true;
         }
 
-        if (!_loginMode && keyData == Keys.Enter)
+        if (keyData == (Keys.Control | Keys.L))
+        {
+            if (_loginButton.Enabled)
+            {
+                _ = LoginWithCredentialsAsync();
+            }
+
+            return true;
+        }
+
+        if (keyData == Keys.F5)
+        {
+            if (_refreshButton.Enabled)
+            {
+                RefreshAccounts();
+            }
+
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.Z))
+        {
+            _searchBox.UndoHistory();
+            return true;
+        }
+
+        if (keyData is (Keys.Control | Keys.Y) or (Keys.Control | Keys.Shift | Keys.Z))
+        {
+            _searchBox.RedoHistory();
+            return true;
+        }
+
+        if (keyData == Keys.Escape)
+        {
+            if (_searchBox.ContainsFocus && _searchBox.TextLength > 0)
+            {
+                _searchBox.Clear();
+            }
+            else
+            {
+                FocusSearch();
+            }
+
+            return true;
+        }
+
+        if (keyData == Keys.Enter)
         {
             if (_switchButton.Enabled && _visibleAccounts.Count > 0)
             {
@@ -358,15 +376,7 @@ public sealed class MainForm : Form
         });
         form.FocusUsernameInput();
 
-        DialogResult dialogResult;
-        try
-        {
-            dialogResult = await closed.Task;
-        }
-        finally
-        {
-            Activate();
-        }
+        var dialogResult = await closed.Task;
 
         SetBusy(false);
         if (dialogResult != DialogResult.OK || form.SuccessfulRequest is null || form.Result is null)

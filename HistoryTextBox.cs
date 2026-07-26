@@ -24,24 +24,34 @@ internal sealed class HistoryTextBox : TextBox
     {
         if (keyData == (Keys.Control | Keys.Z))
         {
-            RestoreFrom(_undoHistory, _redoHistory);
+            UndoHistory();
             return true;
         }
 
         if (keyData is (Keys.Control | Keys.Y) or (Keys.Control | Keys.Shift | Keys.Z))
         {
-            RestoreFrom(_redoHistory, _undoHistory);
+            RedoHistory();
             return true;
         }
 
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
-    private void RestoreFrom(List<string> source, List<string> destination)
+    public bool UndoHistory()
+    {
+        return RestoreFrom(_undoHistory, _redoHistory);
+    }
+
+    public bool RedoHistory()
+    {
+        return RestoreFrom(_redoHistory, _undoHistory);
+    }
+
+    private bool RestoreFrom(List<string> source, List<string> destination)
     {
         if (source.Count == 0)
         {
-            return;
+            return false;
         }
 
         Push(destination, Text);
@@ -61,6 +71,8 @@ internal sealed class HistoryTextBox : TextBox
         {
             _restoringHistory = false;
         }
+
+        return true;
     }
 
     private static void Push(List<string> history, string value)

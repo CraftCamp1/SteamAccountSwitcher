@@ -47,6 +47,16 @@ public sealed class SearchInput : UserControl
         _textBox.SelectAll();
     }
 
+    public bool UndoHistory()
+    {
+        return _textBox.UndoHistory();
+    }
+
+    public bool RedoHistory()
+    {
+        return _textBox.RedoHistory();
+    }
+
     public new bool Focus()
     {
         return _textBox.Focus();
